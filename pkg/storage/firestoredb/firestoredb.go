@@ -425,10 +425,17 @@ func (s *Store) ListUsers(ctx context.Context, statusFilter string, limit, offse
 		return nil, 0, fmt.Errorf("firestoredb: listing users: %w", err)
 	}
 
-	// If aggregation count returned 0 but we fetched users, use the
-	// fetched length as a fallback (handles count API mismatches).
+	// If aggregation count returned 0 but we fetched users, run a
+	// metadata-only scan to get the true total. Select() with no field
+	// paths returns only document references — no field data transferred.
 	if total == 0 && len(snaps) > 0 {
-		total = len(snaps)
+		countSnaps, countErr := q.Select().Documents(ctx).GetAll()
+		if countErr == nil {
+			total = len(countSnaps)
+		} else {
+			slog.Warn("firestoredb: count fallback query failed", "error", countErr)
+			total = len(snaps)
+		}
 	}
 
 	users := make([]*storage.UserRecord, 0, len(snaps))
